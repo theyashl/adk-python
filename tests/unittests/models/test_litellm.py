@@ -13,11 +13,13 @@
 # limitations under the Licens
 
 import contextlib
+from enum import Enum
 import json
 import logging
 import os
 import sys
 import tempfile
+from typing import List
 import unittest
 from unittest.mock import ANY
 from unittest.mock import AsyncMock
@@ -218,8 +220,25 @@ STREAMING_MODEL_RESPONSE = [
 ]
 
 
+class _EnumType(str, Enum):
+  """Enum used to validate $ref handling."""
+
+  A = "A"
+  B = "B"
+
+
+class _InnerObject(BaseModel):
+  enum_value: _EnumType
+  detail: str = Field(description="Some detail")
+
+
+class _OuterObject(BaseModel):
+  items: List[_InnerObject]
+  name: str = Field(description="Name field")
+
+
 class _StructuredOutput(BaseModel):
-  value: int = Field(description="Value to emit")
+  objects: List[_OuterObject]
 
 
 class _ModelDumpOnly:
@@ -321,8 +340,18 @@ def test_to_litellm_response_format_uses_json_schema_for_openai_model():
   assert "json_schema" in formatted
   assert formatted["json_schema"]["name"] == "_StructuredOutput"
   assert formatted["json_schema"]["strict"] is True
-  assert formatted["json_schema"]["schema"]["additionalProperties"] is False
-  assert "additionalProperties" in formatted["json_schema"]["schema"]
+
+  schema = formatted["json_schema"]["schema"]
+  assert schema["additionalProperties"] is False
+  assert schema["$defs"]["_OuterObject"]["additionalProperties"] is False
+  assert schema["$defs"]["_InnerObject"]["additionalProperties"] is False
+
+  enum_ref = schema["$defs"]["_InnerObject"]["properties"]["enum_value"]
+  assert enum_ref == {"$ref": "#/$defs/_EnumType"}
+
+  items_ref = schema["$defs"]["_OuterObject"]["properties"]["items"]
+  assert items_ref["type"] == "array"
+  assert items_ref["items"] == {"$ref": "#/$defs/_InnerObject"}
 
 
 def test_to_litellm_response_format_uses_response_schema_for_gemini_model():
@@ -333,7 +362,19 @@ def test_to_litellm_response_format_uses_response_schema_for_gemini_model():
 
   assert formatted["type"] == "json_object"
   assert "response_schema" in formatted
-  assert formatted["response_schema"] == _StructuredOutput.model_json_schema()
+
+  schema = formatted["response_schema"]
+  assert schema == _StructuredOutput.model_json_schema()
+  assert "additionalProperties" not in schema
+  assert "additionalProperties" not in schema["$defs"]["_OuterObject"]
+  assert "additionalProperties" not in schema["$defs"]["_InnerObject"]
+
+  enum_ref = schema["$defs"]["_InnerObject"]["properties"]["enum_value"]
+  assert enum_ref == {"$ref": "#/$defs/_EnumType"}
+
+  items_ref = schema["$defs"]["_OuterObject"]["properties"]["items"]
+  assert items_ref["type"] == "array"
+  assert items_ref["items"] == {"$ref": "#/$defs/_InnerObject"}
 
 
 def test_to_litellm_response_format_uses_response_schema_for_vertex_gemini():
@@ -344,7 +385,19 @@ def test_to_litellm_response_format_uses_response_schema_for_vertex_gemini():
 
   assert formatted["type"] == "json_object"
   assert "response_schema" in formatted
-  assert formatted["response_schema"] == _StructuredOutput.model_json_schema()
+
+  schema = formatted["response_schema"]
+  assert schema == _StructuredOutput.model_json_schema()
+  assert "additionalProperties" not in schema
+  assert "additionalProperties" not in schema["$defs"]["_OuterObject"]
+  assert "additionalProperties" not in schema["$defs"]["_InnerObject"]
+
+  enum_ref = schema["$defs"]["_InnerObject"]["properties"]["enum_value"]
+  assert enum_ref == {"$ref": "#/$defs/_EnumType"}
+
+  items_ref = schema["$defs"]["_OuterObject"]["properties"]["items"]
+  assert items_ref["type"] == "array"
+  assert items_ref["items"] == {"$ref": "#/$defs/_InnerObject"}
 
 
 def test_to_litellm_response_format_uses_json_schema_for_azure_openai():
@@ -353,12 +406,26 @@ def test_to_litellm_response_format_uses_json_schema_for_azure_openai():
       _StructuredOutput, model="azure/gpt-4o"
   )
 
+  print(f"{formatted=}")
+
   assert formatted["type"] == "json_schema"
   assert "json_schema" in formatted
+  assert "schema" in formatted["json_schema"]
+
   assert formatted["json_schema"]["name"] == "_StructuredOutput"
   assert formatted["json_schema"]["strict"] is True
-  assert formatted["json_schema"]["schema"]["additionalProperties"] is False
-  assert "additionalProperties" in formatted["json_schema"]["schema"]
+
+  schema = formatted["json_schema"]["schema"]
+  assert schema["additionalProperties"] is False
+  assert schema["$defs"]["_OuterObject"]["additionalProperties"] is False
+  assert schema["$defs"]["_InnerObject"]["additionalProperties"] is False
+
+  enum_ref = schema["$defs"]["_InnerObject"]["properties"]["enum_value"]
+  assert enum_ref == {"$ref": "#/$defs/_EnumType"}
+
+  items_ref = schema["$defs"]["_OuterObject"]["properties"]["items"]
+  assert items_ref["type"] == "array"
+  assert items_ref["items"] == {"$ref": "#/$defs/_InnerObject"}
 
 
 def test_to_litellm_response_format_uses_json_schema_for_anthropic():
@@ -371,8 +438,18 @@ def test_to_litellm_response_format_uses_json_schema_for_anthropic():
   assert "json_schema" in formatted
   assert formatted["json_schema"]["name"] == "_StructuredOutput"
   assert formatted["json_schema"]["strict"] is True
-  assert formatted["json_schema"]["schema"]["additionalProperties"] is False
-  assert "additionalProperties" in formatted["json_schema"]["schema"]
+
+  schema = formatted["json_schema"]["schema"]
+  assert schema["additionalProperties"] is False
+  assert schema["$defs"]["_OuterObject"]["additionalProperties"] is False
+  assert schema["$defs"]["_InnerObject"]["additionalProperties"] is False
+
+  enum_ref = schema["$defs"]["_InnerObject"]["properties"]["enum_value"]
+  assert enum_ref == {"$ref": "#/$defs/_EnumType"}
+
+  items_ref = schema["$defs"]["_OuterObject"]["properties"]["items"]
+  assert items_ref["type"] == "array"
+  assert items_ref["items"] == {"$ref": "#/$defs/_InnerObject"}
 
 
 def test_to_litellm_response_format_with_dict_schema_for_openai():
@@ -383,11 +460,14 @@ def test_to_litellm_response_format_with_dict_schema_for_openai():
   }
 
   formatted = _to_litellm_response_format(schema, model="gpt-4o")
+  print(f"{formatted=}")
 
   assert formatted["type"] == "json_schema"
   assert formatted["json_schema"]["name"] == "response"
   assert formatted["json_schema"]["strict"] is True
-  assert formatted["json_schema"]["schema"]["additionalProperties"] is False
+
+  schema = formatted["json_schema"]["schema"]
+  assert schema["additionalProperties"] is False
 
 
 async def test_get_completion_inputs_uses_openai_format_for_openai_model():
@@ -401,13 +481,24 @@ async def test_get_completion_inputs_uses_openai_format_for_openai_model():
       llm_request, model="gpt-4o-mini"
   )
 
+  print(f"{response_format=}")
+
   assert response_format["type"] == "json_schema"
   assert "json_schema" in response_format
   assert response_format["json_schema"]["name"] == "_StructuredOutput"
   assert response_format["json_schema"]["strict"] is True
-  assert (
-      response_format["json_schema"]["schema"]["additionalProperties"] is False
-  )
+
+  schema = response_format["json_schema"]["schema"]
+  assert schema["additionalProperties"] is False
+  assert schema["$defs"]["_OuterObject"]["additionalProperties"] is False
+  assert schema["$defs"]["_InnerObject"]["additionalProperties"] is False
+
+  enum_ref = schema["$defs"]["_InnerObject"]["properties"]["enum_value"]
+  assert enum_ref == {"$ref": "#/$defs/_EnumType"}
+
+  items_ref = schema["$defs"]["_OuterObject"]["properties"]["items"]
+  assert items_ref["type"] == "array"
+  assert items_ref["items"] == {"$ref": "#/$defs/_InnerObject"}
 
 
 async def test_get_completion_inputs_uses_gemini_format_for_gemini_model():
@@ -423,6 +514,18 @@ async def test_get_completion_inputs_uses_gemini_format_for_gemini_model():
 
   assert response_format["type"] == "json_object"
   assert "response_schema" in response_format
+
+  schema = response_format["response_schema"]
+  assert "additionalProperties" not in schema
+  assert "additionalProperties" not in schema["$defs"]["_OuterObject"]
+  assert "additionalProperties" not in schema["$defs"]["_InnerObject"]
+
+  enum_ref = schema["$defs"]["_InnerObject"]["properties"]["enum_value"]
+  assert enum_ref == {"$ref": "#/$defs/_EnumType"}
+
+  items_ref = schema["$defs"]["_OuterObject"]["properties"]["items"]
+  assert items_ref["type"] == "array"
+  assert items_ref["items"] == {"$ref": "#/$defs/_InnerObject"}
 
 
 async def test_get_completion_inputs_uses_passed_model_for_response_format():
@@ -445,9 +548,18 @@ async def test_get_completion_inputs_uses_passed_model_for_response_format():
   assert "json_schema" in response_format
   assert response_format["json_schema"]["name"] == "_StructuredOutput"
   assert response_format["json_schema"]["strict"] is True
-  assert (
-      response_format["json_schema"]["schema"]["additionalProperties"] is False
-  )
+
+  schema = response_format["json_schema"]["schema"]
+  assert schema["additionalProperties"] is False
+  assert schema["$defs"]["_OuterObject"]["additionalProperties"] is False
+  assert schema["$defs"]["_InnerObject"]["additionalProperties"] is False
+
+  enum_ref = schema["$defs"]["_InnerObject"]["properties"]["enum_value"]
+  assert enum_ref == {"$ref": "#/$defs/_EnumType"}
+
+  items_ref = schema["$defs"]["_OuterObject"]["properties"]["items"]
+  assert items_ref["type"] == "array"
+  assert items_ref["items"] == {"$ref": "#/$defs/_InnerObject"}
 
 
 async def test_get_completion_inputs_uses_passed_model_for_gemini_format():
@@ -468,6 +580,18 @@ async def test_get_completion_inputs_uses_passed_model_for_gemini_format():
 
   assert response_format["type"] == "json_object"
   assert "response_schema" in response_format
+
+  schema = response_format["response_schema"]
+  assert "additionalProperties" not in schema
+  assert "additionalProperties" not in schema["$defs"]["_OuterObject"]
+  assert "additionalProperties" not in schema["$defs"]["_InnerObject"]
+
+  enum_ref = schema["$defs"]["_InnerObject"]["properties"]["enum_value"]
+  assert enum_ref == {"$ref": "#/$defs/_EnumType"}
+
+  items_ref = schema["$defs"]["_OuterObject"]["properties"]["items"]
+  assert items_ref["type"] == "array"
+  assert items_ref["items"] == {"$ref": "#/$defs/_InnerObject"}
 
 
 def test_schema_to_dict_filters_none_enum_values():
@@ -838,7 +962,6 @@ class MockLLMClient(LiteLLMClient):
 
 @pytest.mark.asyncio
 async def test_generate_content_async(mock_acompletion, lite_llm_instance):
-
   async for response in lite_llm_instance.generate_content_async(
       LLM_REQUEST_WITH_FUNCTION_DECLARATION
   ):
@@ -1006,7 +1129,6 @@ litellm_append_user_content_test_cases = [
 def test_maybe_append_user_content(
     lite_llm_instance, llm_request, expected_output
 ):
-
   lite_llm_instance._maybe_append_user_content(llm_request)
 
   assert len(llm_request.contents) == expected_output
@@ -2572,7 +2694,6 @@ async def test_completion_with_drop_params(mock_completion, mock_client):
 async def test_generate_content_async_stream(
     mock_completion, lite_llm_instance
 ):
-
   mock_completion.return_value = iter(STREAMING_MODEL_RESPONSE)
 
   responses = [
@@ -2621,7 +2742,6 @@ async def test_generate_content_async_stream(
 async def test_generate_content_async_stream_with_usage_metadata(
     mock_completion, lite_llm_instance
 ):
-
   streaming_model_response_with_usage_metadata = [
       *STREAMING_MODEL_RESPONSE,
       ModelResponse(
