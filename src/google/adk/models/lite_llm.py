@@ -1171,6 +1171,11 @@ def _enforce_closed_schema(schema: dict):
     for def_schema in schema["$defs"].values():
       _enforce_closed_schema(def_schema)
 
+  for key in ("anyOf", "oneOf", "allOf"):
+    if key in schema:
+      for sub_schema in schema[key]:
+        _enforce_closed_schema(sub_schema)
+
 
 def _to_litellm_response_format(
     response_schema: types.SchemaUnion,
