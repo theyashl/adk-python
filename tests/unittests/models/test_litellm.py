@@ -406,8 +406,6 @@ def test_to_litellm_response_format_uses_json_schema_for_azure_openai():
       _StructuredOutput, model="azure/gpt-4o"
   )
 
-  print(f"{formatted=}")
-
   assert formatted["type"] == "json_schema"
   assert "json_schema" in formatted
   assert "schema" in formatted["json_schema"]
@@ -460,7 +458,6 @@ def test_to_litellm_response_format_with_dict_schema_for_openai():
   }
 
   formatted = _to_litellm_response_format(schema, model="gpt-4o")
-  print(f"{formatted=}")
 
   assert formatted["type"] == "json_schema"
   assert formatted["json_schema"]["name"] == "response"
@@ -480,8 +477,6 @@ async def test_get_completion_inputs_uses_openai_format_for_openai_model():
   _, _, response_format, _ = await _get_completion_inputs(
       llm_request, model="gpt-4o-mini"
   )
-
-  print(f"{response_format=}")
 
   assert response_format["type"] == "json_schema"
   assert "json_schema" in response_format
