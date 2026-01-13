@@ -116,6 +116,10 @@ class BaseLlmFlow(ABC):
           attempt += 1
           if not llm_request.live_connect_config:
             llm_request.live_connect_config = types.LiveConnectConfig()
+          if not llm_request.live_connect_config.session_resumption:
+            llm_request.live_connect_config.session_resumption = (
+                types.SessionResumptionConfig()
+            )
           llm_request.live_connect_config.session_resumption.handle = (
               invocation_context.live_session_resumption_handle
           )
@@ -299,7 +303,6 @@ class BaseLlmFlow(ABC):
       else:
         return invocation_context.agent.name
 
-    assert invocation_context.live_request_queue
     try:
       while True:
         async with Aclosing(llm_connection.receive()) as agen:
